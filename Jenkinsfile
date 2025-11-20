@@ -63,11 +63,7 @@ pipeline {
                     }
                     post {
                         always {
-                            publishHTML([
-                                reportDir: 'playwright-report',
-                                reportFiles: 'index.html',
-                                reportName: 'Playwright Report'
-                            ])
+                            archiveArtifacts artifacts: 'playwright-report/**', allowEmptyArchive: true
                         }
                     }
                 }
