@@ -3,12 +3,16 @@ pipeline {
     agent any
 
     environment {
-        NETLIFY_SITE_ID = "cd5fae46-e99a-46af-862e-b9ca471784b6"
+        NETLIFY_SITE_ID  = "cd5fae46-e99a-46af-862e-b9ca471784b6"
         NETLIFY_AUTH_TOKEN = credentials('netlify-token')
+        CI = "true"
     }
 
     stages {
 
+        /* ============================
+         * BUILD
+         * ============================ */
         stage('Build') {
             agent {
                 docker {
@@ -21,12 +25,18 @@ pipeline {
                     npm ci
                     npm run build
                 '''
+                stash includes: 'build/**', name: 'build'
+                stash includes: 'node_modules/**', name: 'node_modules_alpine'
             }
         }
 
+        /* ============================
+         * TESTS (UNIT + E2E)
+         * ============================ */
         stage('Tests') {
             parallel {
 
+                /* --- UNIT TESTS --- */
                 stage('Unit Tests') {
                     agent {
                         docker {
@@ -35,6 +45,7 @@ pipeline {
                         }
                     }
                     steps {
+                        unstash 'node_modules_alpine'
                         sh 'npm test'
                     }
                     post {
@@ -44,6 +55,7 @@ pipeline {
                     }
                 }
 
+                /* --- E2E TESTS (PLAYWRIGHT) --- */
                 stage('E2E Tests') {
                     agent {
                         docker {
@@ -52,11 +64,14 @@ pipeline {
                         }
                     }
                     steps {
-                        sh '''
-                            npm install --no-save serve
+                        unstash 'build'
 
-                            node_modules/.bin/serve -s build &
-                            sleep 10
+                        sh '''
+                            # El node_modules alpino NO sirve aquí → debes reinstalar
+                            npm ci
+
+                            npx serve -s build & 
+                            sleep 8
 
                             npx playwright test --reporter=html
                         '''
@@ -67,9 +82,13 @@ pipeline {
                         }
                     }
                 }
+
             }
         }
 
+        /* ============================
+         * DEPLOY
+         * ============================ */
         stage('Deploy to Netlify') {
             agent {
                 docker {
@@ -78,13 +97,13 @@ pipeline {
                 }
             }
             steps {
+                unstash 'build'
+
                 sh '''
-                    npm install -g netlify-cli
-                    netlify --version
+                    npm install netlify-cli --no-save
+                    echo "🚀 Deploying to Netlify…"
 
-                    echo "🚀 Deploying to Netlify..."
-
-                    netlify deploy \
+                    npx netlify deploy \
                       --prod \
                       --site $NETLIFY_SITE_ID \
                       --auth $NETLIFY_AUTH_TOKEN \
